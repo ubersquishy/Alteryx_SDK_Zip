@@ -13,7 +13,7 @@ class AyxPlugin:
 
         # Custom properties
         self.SourceFieldName: str = None
-        self.extract_path = None
+        self.OutputPathName: str = None
         self.password = None
         self.no_overwrite = False
         self.files_extracted = 0
@@ -24,7 +24,7 @@ class AyxPlugin:
     def pi_init(self, str_xml: str):
         # Getting the dataName data property from the Gui.html
         self.SourceFieldName = Et.fromstring(str_xml).find('SourceField').text if 'SourceField' in str_xml else None
-        self.extract_path = Et.fromstring(str_xml).find('ExtractPath').text if 'ExtractPath' in str_xml else None
+        self.OutputPathName = Et.fromstring(str_xml).find('OutputField').text if 'OutputField' in str_xml else None
         self.no_overwrite = Et.fromstring(str_xml).find('NoOverwrite').text == 'True' if 'NoOverwrite' in str_xml else None
         #self.password = Et.fromstring(str_xml).find('Password').text if 'Password' in str_xml else None
         #self.password = self.alteryx_engine.decrypt_password(Et.fromstring(str_xml).find('Password').text, 0)
@@ -32,10 +32,8 @@ class AyxPlugin:
         # Validity checks.
         if self.SourceFieldName is None:
             self.display_error_msg('Source field cannot be empty.')
-        elif self.extract_path is None or self.extract_path == '':
-            self.display_error_msg('Extract path cannot be empty.')
-        elif not os.path.exists(self.extract_path):
-            self.display_error_msg('Extract path doesn\'t exist')
+        elif self.OutputPathName is None:
+            self.display_error_msg('Output field cannot be empty.')
 
 
         # Getting the output anchor from Config.xml by the output connection name
@@ -72,6 +70,7 @@ class IncomingInterface:
         self.record_creator: Sdk.RecordCreator = None
         self.OutputField: Sdk.Field = None
         self.SourceField: Sdk.Field = None
+        self.OutputPath: Sdk.Field = None
 
         #output field config
         self.output_name: str = 'zip_content'
@@ -82,10 +81,13 @@ class IncomingInterface:
         # Make sure the user provided a field to parse
         if self.parent.SourceFieldName is None:
             self.parent.display_error_msg('Select a source field')
-            return False
+        elif self.parent.OutputPathName is None:
+            self.parent.display_error_msg('Select an output field') 
+        return False
             
         # Get information about the source path field
         self.SourceField = record_info_in.get_field_by_name(self.parent.SourceFieldName)
+        self.OutputPath = record_info_in.get_field_by_name(self.parent.OutputPathName)
         #match_field_type: Sdk.FieldType = self.SourceField.type
         #match_field_size: int = self.SourceField.size
 
@@ -169,27 +171,27 @@ class IncomingInterface:
 
         # Get the text to parse and set the matches counter
         source: str = self.SourceField.get_as_string(in_record)
+        dest: str = self.OutputField.get_as_string(in_record)
 
         output_str: str = ''
         failed_op: bool = False
 
         # make all dirs in path if selected
-        #if self.parent.create_dirs:
-        #    try:
-        #        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        #    except OSError as e:
-        #        self.parent.display_error_msg("Unable to create directory tree")
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+        except OSError as e:
+            self.parent.display_error_msg("Unable to create output directory")
 
         # Check if value is null
-        if source is not None and self.parent.extract_path is not None:
+        if source is not None and self.parent.OutputPathName is not None:
             try:
                 if not os.path.exists(source):
                     self.parent.display_error_msg('Source file doesn\'t exist')
-                elif not os.path.exists(self.parent.extract_path):
+                elif not os.path.exists(self.parent.OutputPathName):
                     self.parent.display_error_msg('Extract path doesn\'t exist')
                 else:
                     if source.lower().endswith(('zip', 'tar', 'tar.gz')):
-                        files = self.unzip(source, self.parent.extract_path, self.parent.no_overwrite, self.parent.password)
+                        files = self.unzip(source, dest, self.parent.no_overwrite, self.parent.password)
                         for file in files:
                             self.OutputField.set_from_string(self.record_creator, file)
                             out_record = self.record_creator.finalize_record()
